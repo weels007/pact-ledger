@@ -72,6 +72,7 @@ export default function PactDetail({ params }: { params: Promise<{ id: string }>
   const [trail, setTrail] = useState<TrailTx[]>([]);
   const [trailNote, setTrailNote] = useState("Reading the consensus trail…");
   const actingRef = useRef(false);
+  const cardRef = useRef<Card | null>(null);
   // Prerender-safe: real clock only starts client-side (Next forbids
   // Date.now() during prerender).
   const [nowTick, setNowTick] = useState(0);
@@ -102,6 +103,7 @@ export default function PactDetail({ params }: { params: Promise<{ id: string }>
       const c = (await read("get_verdict_card", [id])) as Card;
       if (!c || !c.workflow_id) throw new Error("empty");
       setCard(c);
+      cardRef.current = c;
       await loadPage(0);
     } catch {
       setError("Pact not found or chain unreachable.");
@@ -167,7 +169,16 @@ export default function PactDetail({ params }: { params: Promise<{ id: string }>
   const canRecover = isOwner && !card?.settled && ["open", "disputed"].includes(card?.status);
   const canExtend = isOwner && card?.status === "open" && !card?.settled;
 
-  async function act(title: string, method: string, args: unknown[], opts: { valueAtto?: bigint }, doneMsg: string) {
+  async function act(
+    title: string,
+    method: string,
+    args: unknown[],
+    opts: { valueAtto?: bigint },
+    doneMsg: string,
+    // State confirmation beats receipt parsing: receipts are heuristic,
+    // chain state is truth. Captures pre-state via closure when needed.
+    confirm?: (fresh: Card | null) => boolean
+  ) {
     // Ref guard: React state updates async, so rapid double-clicks could
     // otherwise fire two transactions before `busy` disables the button.
     if (actingRef.current) return;
@@ -182,16 +193,23 @@ export default function PactDetail({ params }: { params: Promise<{ id: string }>
         onHash: (h) => tx.update(tracker, { hash: h }),
       });
       const out = executionOutcome(receipt);
-      if (!out.ok) {
-        const msg = out.expectedMessage
-          ? `Rejected: ${out.expectedMessage}`
-          : "Finalized without effect — validators could not agree. Nothing changed.";
+      if (out.expectedMessage) {
+        // Deterministic revert — fast fail, no extra reads needed.
+        const msg = `Rejected: ${out.expectedMessage}`;
+        tx.update(tracker, { tone: "bad", hash, note: msg });
+        setActionError(msg);
+        return;
+      }
+      await load();
+      const confirmed = confirm ? confirm(cardRef.current) : out.ok;
+      if (!confirmed && !out.ok) {
+        const msg = "Finalized without visible effect — validators may not have agreed. Nothing changed; check the trail below.";
         tx.update(tracker, { tone: "bad", hash, note: msg });
         setActionError(msg);
         return;
       }
       tx.update(tracker, { tone: "good", hash, note: doneMsg });
-      setActionOk(doneMsg);
+      setActionOk(confirmed ? doneMsg : `${doneMsg} (receipt was ambiguous — verify above.)`);
       await load();
     } catch (e) {
       const msg = friendlyError(e);
@@ -203,8 +221,11 @@ export default function PactDetail({ params }: { params: Promise<{ id: string }>
     }
   }
 
-  const doExtend = () =>
-    act(`Extending ${id}`, "extend_deadline", [id, BigInt(datetimeLocalToUnix(newDeadline))], {}, "Deadline extended.");
+  const doExtend = () => {
+    const target = datetimeLocalToUnix(newDeadline);
+    return act(`Extending ${id}`, "extend_deadline", [id, BigInt(target)], {}, "Deadline extended.",
+      (c) => toNum(c?.deadline_unix) === target);
+  };
 
   return (
     <div className="rise-in mx-auto max-w-[1520px] px-4 py-10">
@@ -350,7 +371,11 @@ export default function PactDetail({ params }: { params: Promise<{ id: string }>
               <ActionCard title="Fund escrow" hint="Top up any time before judgment. GEN moves straight into the contract.">
                 <div className="flex gap-2">
                   <input value={fundAmt} onChange={(e) => setFundAmt(e.target.value)} inputMode="decimal" pattern="[0-9]+(\.[0-9]+)?" placeholder="0.5" className="w-full rounded-sm border border-parchment/20 bg-ink px-3 py-2 font-mono text-sm" />
-                  <Button variant="brass" size="sm" disabled={busy} onClick={() => act(`Funding ${id}`, "fund_workflow", [id], { valueAtto: genToAtto(fundAmt || "0") }, `${fundAmt} GEN locked in escrow.`)}>Fund</Button>
+                  <Button variant="brass" size="sm" disabled={busy} onClick={() => {
+                    const before = toNum(cardRef.current?.escrowed_atto);
+                    return act(`Funding ${id}`, "fund_workflow", [id], { valueAtto: genToAtto(fundAmt || "0") }, `${fundAmt} GEN locked in escrow.`,
+                      (c) => toNum(c?.escrowed_atto) > before);
+                  }}>Fund</Button>
                 </div>
               </ActionCard>
             )}
@@ -361,32 +386,42 @@ export default function PactDetail({ params }: { params: Promise<{ id: string }>
                 <input value={ev.agent} onChange={(e) => setEv({ ...ev, agent: e.target.value })} placeholder="agent name" className={`${input} mb-2 font-mono`} />
                 <input value={ev.url} onChange={(e) => setEv({ ...ev, url: e.target.value })} placeholder="https://… evidence URL" className={`${input} mb-2 font-mono`} />
                 <textarea value={ev.summary} onChange={(e) => setEv({ ...ev, summary: e.target.value })} rows={2} placeholder="What was delivered?" className={`${input} mb-2`} />
-                <Button variant="ghost" size="block" disabled={busy} onClick={() => act(`Filing on ${id}`, "submit_evidence", [id, ev.step.trim(), ev.agent.trim(), ev.url.trim(), ev.summary.trim()], {}, "Evidence filed with chain timestamp.")}>File evidence</Button>
+                <Button variant="ghost" size="block" disabled={busy} onClick={() => {
+                  const before = toNum(cardRef.current?.evidence_count);
+                  const step = ev.step.trim();
+                  const agent = ev.agent.trim();
+                  return act(`Filing on ${id}`, "submit_evidence", [id, step, agent, ev.url.trim(), ev.summary.trim()], {}, "Evidence filed with chain timestamp.",
+                    (c) => toNum(c?.evidence_count) > before);
+                }}>File evidence</Button>
               </ActionCard>
             )}
 
             {canJudge && (
               <ActionCard title="Pass judgment" hint="Runs the full validator consensus. Takes a minute or two.">
-                <Button variant="seal" size="block" disabled={busy} onClick={() => act(`Judging ${id}`, "adjudicate_workflow", [id], {}, "Verdict sealed by validator consensus.")}>Adjudicate now</Button>
+                <Button variant="seal" size="block" disabled={busy} onClick={() => act(`Judging ${id}`, "adjudicate_workflow", [id], {}, "Verdict sealed by validator consensus.",
+                  (c) => !!c?.verdict && Object.keys(c.verdict).length > 0)}>Adjudicate now</Button>
               </ActionCard>
             )}
 
             {canDispute && (
               <ActionCard title="Open dispute" hint="One round only. Reputation effects reverse until re-grading.">
                 <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Why is the verdict wrong?" className={`${input} mb-2`} />
-                <Button variant="danger" size="block" disabled={busy} onClick={() => act(`Disputing ${id}`, "open_dispute", [id, note.trim()], {}, "Dispute opened. Reputation effects reversed.")}>Dispute verdict</Button>
+                <Button variant="danger" size="block" disabled={busy} onClick={() => act(`Disputing ${id}`, "open_dispute", [id, note.trim()], {}, "Dispute opened. Reputation effects reversed.",
+                  (c) => c?.status === "disputed")}>Dispute verdict</Button>
               </ActionCard>
             )}
 
             {canResolve && (
               <ActionCard title="Resolve dispute" hint="Re-runs judgment with the dispute note and fresh filings.">
-                <Button variant="brass" size="block" disabled={busy} onClick={() => act(`Re-judging ${id}`, "resolve_dispute", [id], {}, "Dispute resolved with a fresh verdict.")}>Re-adjudicate</Button>
+                <Button variant="brass" size="block" disabled={busy} onClick={() => act(`Re-judging ${id}`, "resolve_dispute", [id], {}, "Dispute resolved with a fresh verdict.",
+                  (c) => ["compliant", "breached"].includes(c?.status))}>Re-adjudicate</Button>
               </ActionCard>
             )}
 
             {canSettle && (
               <ActionCard title="Settle escrow" hint={`Anyone can trigger it. Pays ${card ? fmtGen(card.escrowed_atto) : ""} to the ${card?.verdict?.compliant ? "beneficiary" : "owner"}.`}>
-                <Button variant="pine" size="block" disabled={busy || !settleReady} onClick={() => act(`Settling ${id}`, "settle_workflow", [id], {}, "Escrow released.")}>
+                <Button variant="pine" size="block" disabled={busy || !settleReady} onClick={() => act(`Settling ${id}`, "settle_workflow", [id], {}, "Escrow released.",
+                  (c) => !!c?.settled)}>
                   {settleReady ? `Release ${card ? fmtGen(card.escrowed_atto) : ""}` : `Opens in ${card ? fmtCountdown(card.settle_after) : ""}`}
                 </Button>
               </ActionCard>
@@ -403,7 +438,8 @@ export default function PactDetail({ params }: { params: Promise<{ id: string }>
 
             {canRecover && (
               <ActionCard title="Recover escrow" hint="No verdict and past deadline + window: reclaim funds so they never lock.">
-                <Button variant="danger" size="block" disabled={busy} onClick={() => act(`Recovering ${id}`, "recover_escrow", [id], {}, "Escrow reclaimed by owner.")}>Recover funds</Button>
+                <Button variant="danger" size="block" disabled={busy} onClick={() => act(`Recovering ${id}`, "recover_escrow", [id], {}, "Escrow reclaimed by owner.",
+                  (c) => !!c?.settled)}>Recover funds</Button>
               </ActionCard>
             )}
 

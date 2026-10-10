@@ -5,7 +5,7 @@ import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useWallet } from "@/components/wallet-modal";
 import { useTx } from "@/components/tx-track";
-import { executionOutcome, friendlyError, write } from "@/lib/chain";
+import { executionOutcome, friendlyError, read, write } from "@/lib/chain";
 import { datetimeLocalToUnix, genToAtto, toCalldataAddress } from "@/lib/format";
 import { getAddress } from "@/lib/wallet";
 
@@ -68,13 +68,19 @@ export default function NewPact() {
         { onHash: (h) => tx.update(tracker, { hash: h }) }
       );
       const out = executionOutcome(receipt);
-      if (!out.ok) {
-        tx.update(tracker, { tone: "bad", note: out.expectedMessage || "Chain rejected the pact." });
-        setError(
-          out.expectedMessage
-            ? `Rejected: ${out.expectedMessage}`
-            : "The transaction finalized without effect (validators could not agree). Nothing was stored."
-        );
+      if (out.expectedMessage) {
+        tx.update(tracker, { tone: "bad", note: `Rejected: ${out.expectedMessage}` });
+        setError(`Rejected: ${out.expectedMessage}`);
+        return;
+      }
+      // Ground truth is chain state, not receipt parsing: confirm the pact
+      // exists before declaring success.
+      try {
+        const check = await read("get_workflow", [id]);
+        if (!check || !check.workflow_id) throw new Error("missing");
+      } catch {
+        tx.update(tracker, { tone: "bad", note: "Finalized without visible effect — check the registry before retrying (do not resubmit blindly)." });
+        setError("The transaction finalized but the pact is not visible yet. Check the registry — it may appear shortly — before submitting again.");
         return;
       }
       tx.update(tracker, { tone: "good", hash, note: "Pact sealed in the registry." });
