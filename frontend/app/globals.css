@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #12140f;
+  --color-ink2: #1a1e17;
+  --color-ink3: #232820;
+  --color-parchment: #ece7d6;
+  --color-parchdim: #b9b29c;
+  --color-seal: #ae3226;
+  --color-sealdeep: #7e2118;
+  --color-pine: #3fa46f;
+  --color-pinedeep: #1e4a36;
+  --color-brass: #c29b3c;
+  --color-brassdeep: #7a5f1e;
+  --color-sage: #7d8b7a;
+
+  --font-display: "Spectral", Georgia, serif;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-parchment);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Ledger rules: hairline rows like an account book */
+.ledger-row {
+  border-bottom: 1px solid rgb(236 231 214 / 0.1);
+}
+.ledger-row:last-child {
+  border-bottom: 0;
+}
+
+.brass-frame {
+  border: 1px solid rgb(194 155 60 / 0.35);
+}
+
+.seal-stamp {
+  transform: rotate(-6deg);
+}
+
+:focus-visible {
+  outline: 2px solid #c29b3c;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise-in {
+  animation: rise-in 0.45s ease-out both;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.toast-in {
+  animation: toast-in 0.25s ease-out both;
+}
+
+input,
+select,
+textarea {
+  color-scheme: dark;
+}
+
+/* Pointer on every actionable control; honest cursor when disabled. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+a[href] {
+  cursor: pointer;
+}

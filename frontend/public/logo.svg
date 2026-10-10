@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240">
+  <defs>
+    <path id="pl-ring" d="M120,120 m-88,0 a88,88 0 1,1 176,0 a88,88 0 1,1 -176,0" fill="none"/>
+  </defs>
+  <circle cx="120" cy="120" r="116" fill="#12140F"/>
+  <circle cx="120" cy="120" r="112" fill="none" stroke="#C29B3C" stroke-width="3"/>
+  <circle cx="120" cy="120" r="64" fill="none" stroke="#C29B3C" stroke-width="1.5"/>
+  <text font-family="Georgia, 'Times New Roman', serif" font-size="19" letter-spacing="4" fill="#C29B3C">
+    <textPath href="#pl-ring" startOffset="2%">SEALED PACTS • AI ARBITRATION •</textPath>
+  </text>
+  <circle cx="120" cy="44" r="3" fill="#AE3226"/>
+  <circle cx="120" cy="196" r="3" fill="#AE3226"/>
+  <text x="120" y="152" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-weight="bold" font-size="88" fill="#ECE7D6">P</text>
+  <text x="120" y="176" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-size="17" letter-spacing="6" fill="#C29B3C">LEDGER</text>
+</svg>
