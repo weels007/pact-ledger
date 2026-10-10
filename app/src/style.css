@@ -1,0 +1,94 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-ink text-parchment font-body antialiased;
+}
+
+/* Ledger rules: hairline rows like an account book */
+.ledger-row {
+  border-bottom: 1px solid rgba(236, 231, 214, 0.1);
+}
+.ledger-row:last-child {
+  border-bottom: 0;
+}
+
+/* Brass hairline frame for featured cards */
+.brass-frame {
+  border: 1px solid rgba(194, 155, 60, 0.35);
+}
+
+/* Verdict seal: circular stamp, slightRotation for a hand-stamped feel */
+.seal-stamp {
+  transform: rotate(-6deg);
+}
+.seal-ring {
+  border: 2px solid currentColor;
+  border-radius: 9999px;
+}
+.seal-ring-inner {
+  border: 1px solid currentColor;
+  border-radius: 9999px;
+}
+
+/* Visible keyboard focus everywhere */
+:focus-visible {
+  outline: 2px solid #c29b3c;
+  outline-offset: 2px;
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Subtle entrance for view content */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise-in {
+  animation: rise-in 0.45s ease-out both;
+}
+
+/* Toast slide */
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.toast-in {
+  animation: toast-in 0.25s ease-out both;
+}
+
+input,
+select,
+textarea {
+  color-scheme: dark;
+}

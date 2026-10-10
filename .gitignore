@@ -1,0 +1,29 @@
+# deps & builds
+node_modules/
+.next/
+dist/
+build/
+
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+artifacts/
+*.egg-info/
+
+# secrets — never commit wallets or keys
+*.json.bak
+*pactledger-keystore*
+.env
+.env.*
+!.env.example
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# logs & temp
+*.log
+.temp/
