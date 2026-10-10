@@ -152,12 +152,3 @@ rejects construction; reads are throttled client-side under the 30 req/min RPC b
 - No double actions: settled flags, single appeal round, duplicate-evidence guards,
   frontend ref-guards against double-click transactions.
 - Unverified text stays display-only: the LLM `reason` never drives settlement or disputes.
-
-## 🗺️ Roadmap
-
-- [x] Escrow + adjudication + dispute + settlement on studionet (live, tested end-to-end)
-- [x] Verdict cards, consensus trail, reputation, pagination
-- [x] Next.js dApp with browser + keystore wallets
-- [ ] Contract index views (`get_ids_by_owner`, registry pages) to cut list reads
-- [ ] Mainnet/testnet deployment + Vercel hosting (`frontend/` as root)
-- [ ] Multi-beneficiary splits and partial payouts
