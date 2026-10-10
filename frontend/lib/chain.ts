@@ -141,16 +141,31 @@ export interface Outcome {
   undetermined: boolean;
 }
 
-// Rotation rounds also record ERROR entries, so success is judged by the
-// presence of at least one SUCCESS, not the absence of errors.
+// Rotation rounds also record ERROR entries, so success is judged from the
+// leader receipts structurally: any SUCCESS wins; hard failure markers or
+// zero successes mean the call did not take effect.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function executionOutcome(receipt: any): Outcome {
+  const leaders: unknown[] = Array.isArray(receipt?.consensus_data?.leader_receipt)
+    ? receipt.consensus_data.leader_receipt
+    : [];
+  let successes = 0;
+  let errors = 0;
+  let fatal = false;
+  for (const r of leaders) {
+    const rec = r as Record<string, unknown>;
+    const exec = String(rec?.execution_result ?? "");
+    if (exec === "SUCCESS") successes++;
+    else if (exec) errors++;
+    if (/FINISHED_WITH_ERROR|contract_error/.test(JSON.stringify(rec?.result ?? rec ?? ""))) fatal = true;
+  }
   const text = receiptText(receipt);
-  // Hard failure markers. Rotation-round errors (quorum/no-majority) also
-  // appear on successful receipts, so they must not fail the outcome alone.
-  const fatal = /FINISHED_WITH_ERROR|contract_error/.test(text);
-  const errors = (text.match(/execution_result[^,]*ERROR/g) || []).length;
-  const successes = (text.match(/SUCCESS/g) || []).length;
+  if (leaders.length === 0) {
+    // Fallback for simplified receipts without leader breakdown.
+    errors = (text.match(/execution_result[^,]*ERROR/g) || []).length;
+    successes = (text.match(/SUCCESS/g) || []).length;
+    if (/FINISHED_WITH_ERROR|contract_error/.test(text)) fatal = true;
+  }
   const m = /\[EXPECTED\]\s*([^"\\]+)/.exec(text);
   const undetermined = successes === 0;
   return {
