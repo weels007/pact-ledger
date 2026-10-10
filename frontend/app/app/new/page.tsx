@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useWallet } from "@/components/wallet-modal";
 import { useTx } from "@/components/tx-track";
 import { executionOutcome, friendlyError, write } from "@/lib/chain";
-import { datetimeLocalToUnix, genToAtto, toChecksumAddress } from "@/lib/format";
+import { datetimeLocalToUnix, genToAtto, toCalldataAddress } from "@/lib/format";
 import { getAddress } from "@/lib/wallet";
 
 export default function NewPact() {
@@ -46,9 +46,9 @@ export default function NewPact() {
       // .to_bytes() on them and a raw string crashes construction.
       // Same for Address: checksummed, validated before sending.
       const rawBeneficiary = f.beneficiary.trim() || getAddress() || "";
-      let beneficiary: `0x${string}`;
+      let beneficiary;
       try {
-        beneficiary = toChecksumAddress(rawBeneficiary);
+        beneficiary = toCalldataAddress(rawBeneficiary);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Invalid beneficiary address.");
         return;

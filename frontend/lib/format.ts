@@ -61,7 +61,8 @@ export function fmtCountdown(targetSec: unknown): string {
   return `${s}s`;
 }
 
-import { getAddress as checksummed } from "viem";
+import { getAddress as checksummed, hexToBytes } from "viem";
+import { CalldataAddress } from "genlayer-js/types";
 
 export function datetimeLocalToUnix(v: string): number {
   const t = new Date(v).getTime();
@@ -79,4 +80,15 @@ export function toChecksumAddress(v: string): `0x${string}` {
   } catch {
     throw new Error("Beneficiary address is not valid.");
   }
+}
+
+/** Wrap an address for genlayer-js calldata: the encoder only emits the
+ *  Address type for CalldataAddress instances — raw strings (checksummed
+ *  or not) are encoded as strings and crash the VM. Same class object the
+ *  encoder uses, so instanceof always matches. */
+export function toCalldataAddress(v: string): CalldataAddress {
+  const s = toChecksumAddress(v);
+  const bytes = hexToBytes(s);
+  if (bytes.length !== 20) throw new Error("Beneficiary address is not valid.");
+  return new CalldataAddress(bytes);
 }
