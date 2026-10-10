@@ -14,6 +14,7 @@ export interface SlimTx {
   method: string | null;
   status: string;
   exec: string | null;
+  consensus: "accepted" | "undetermined" | null;
   agree: number;
   disagree: number;
   idle: number;
@@ -21,6 +22,8 @@ export interface SlimTx {
   appealed: boolean;
   time: string;
   value: string;
+  rounds: { exec: string | null; vote: string | null }[];
+  proposal: { compliant: boolean | null; score: number | null; responsible: string | null; reason: string | null } | null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -55,6 +58,66 @@ function methodOf(b64: string | null): string | null {
   return null;
 }
 
+// --- Leader-proposal decoder (GenVM calldata map, flat keys) ---------------
+// Values start with a ULEB128 number: low 3 bits = type (0 atom, 1 uint,
+// 4 string), remaining bits = value/length. Keys are FastStrings (ULEB128
+// length + bytes, no type bits).
+function readUleb(buf: Buffer, pos: number): [number, number] {
+  let n = 0;
+  let shift = 0;
+  let i = pos;
+  for (; i < buf.length && i < pos + 10; i++) {
+    const b = buf[i];
+    n += (b & 0x7f) * 2 ** shift;
+    shift += 7;
+    if ((b & 0x80) === 0) {
+      i++;
+      break;
+    }
+  }
+  return [n, i];
+}
+
+function readProposalValue(buf: Buffer, key: string): { bool?: boolean; num?: number; str?: string } | null {
+  const kb = Buffer.from(key, "utf8");
+  const idx = buf.indexOf(kb);
+  if (idx <= 0 || buf[idx - 1] !== kb.length) return null;
+  const [n, next] = readUleb(buf, idx + kb.length);
+  const type = n % 8;
+  const val = Math.floor(n / 8);
+  if (type === 0) {
+    if (val > 2) return null;
+    return { bool: val === 2 ? true : val === 1 ? false : undefined };
+  }
+  if (type === 1) return { num: val };
+  if (type === 4) {
+    if (next + val > buf.length || val > 100000) return null;
+    return { str: buf.toString("utf8", next, next + val) };
+  }
+  return null;
+}
+
+function decodeProposal(b64: string | null): SlimTx["proposal"] {
+  if (!b64) return null;
+  let buf: Buffer;
+  try {
+    buf = Buffer.from(b64, "base64");
+  } catch {
+    return null;
+  }
+  const c = readProposalValue(buf, "compliant");
+  const s = readProposalValue(buf, "score");
+  const r = readProposalValue(buf, "responsible_party");
+  const reason = readProposalValue(buf, "reason");
+  if (!c && !s && !r && !reason) return null;
+  return {
+    compliant: c && "bool" in c ? (c.bool as boolean | undefined) ?? null : null,
+    score: s && "num" in s ? (s.num as number) : null,
+    responsible: r && "str" in r ? (r.str as string) : null,
+    reason: reason && "str" in reason ? (reason.str as string) : null,
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function slim(tx: any, workflowId: string): SlimTx | null {
   const cd = tx?.data?.calldata;
@@ -73,13 +136,43 @@ function slim(tx: any, workflowId: string): SlimTx | null {
   }
   const lr = tx?.consensus_data?.leader_receipt;
   const exec = Array.isArray(lr) && lr.length > 0 ? String(lr[0]?.execution_result ?? "") || null : null;
+  const rounds: SlimTx["rounds"] = [];
+  if (Array.isArray(lr)) {
+    for (const r of lr) {
+      rounds.push({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        exec: String((r as any)?.execution_result ?? "") || null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        vote: String((r as any)?.vote ?? "") || null,
+      });
+    }
+  }
+  const total = agree + disagree + idle;
+  // Matches the explorer: majority agreement accepts, otherwise undetermined.
+  const consensus = total === 0 ? null : agree > total / 2 ? "accepted" : "undetermined";
+  const method = methodOf(typeof cd === "string" ? cd : null);
+  const proposal =
+    method === "adjudicate_workflow" || method === "resolve_dispute"
+      ? (() => {
+          try {
+            const first = Array.isArray(lr) && lr.length > 0 ? lr[0] : null;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const eq = (first as any)?.eq_outputs;
+            const key = eq && typeof eq === "object" ? Object.keys(eq)[0] : null;
+            return key ? decodeProposal(String(eq[key])) : null;
+          } catch {
+            return null;
+          }
+        })()
+      : null;
   const from = String(tx.from_address || "").toLowerCase();
   return {
     hash: String(tx.hash),
     kind: tx.type === 1 ? "deploy" : from === CONTRACT_ADDRESS.toLowerCase() ? "send" : "call",
-    method: methodOf(typeof cd === "string" ? cd : null),
+    method,
     status: String(tx.status),
     exec,
+    consensus,
     agree,
     disagree,
     idle,
@@ -87,6 +180,8 @@ function slim(tx: any, workflowId: string): SlimTx | null {
     appealed: !!tx.appealed,
     time: String(tx.created_at || ""),
     value: String(tx.value ?? "0"),
+    rounds,
+    proposal,
   };
 }
 

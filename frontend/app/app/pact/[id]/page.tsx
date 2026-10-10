@@ -29,6 +29,7 @@ interface TrailTx {
   method: string | null;
   status: string;
   exec: string | null;
+  consensus: "accepted" | "undetermined" | null;
   agree: number;
   disagree: number;
   idle: number;
@@ -36,13 +37,77 @@ interface TrailTx {
   appealed: boolean;
   time: string;
   value: string;
+  rounds: { exec: string | null; vote: string | null }[];
+  proposal: { compliant: boolean | null; score: number | null; responsible: string | null; reason: string | null } | null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Card = Record<string, any>;
 
-function ActionCard({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
+function TrailRow({ t, ai }: { t: TrailTx; ai: boolean }) {
+  const [open, setOpen] = useState(false);
+  const consensusCls =
+    t.consensus === "accepted" ? "text-pine" : t.consensus === "undetermined" ? "text-seal" : "text-sage";
   return (
+    <div className={`ledger-row px-4 py-3 ${ai ? "border-l-2 border-l-brass" : ""}`}>
+      <button onClick={() => setOpen(!open)} aria-expanded={open} className="block w-full text-left">
+        <div className="flex flex-wrap items-baseline gap-x-3">
+          <span className="text-sm font-semibold">
+            {t.method ? (METHOD_LABEL[t.method] || t.method) : t.kind === "send" ? "GEN transfer" : t.kind}
+          </span>
+          {ai && <span className="rounded-sm bg-brass/20 px-1.5 py-0.5 font-mono text-[10px] text-brass">AI consensus</span>}
+          {t.consensus && <span className={`font-mono text-[11px] font-semibold uppercase ${consensusCls}`}>{t.consensus}</span>}
+          <span className="ml-auto font-mono text-[11px] text-sage">{open ? "▾ detail" : "▸ detail"}</span>
+        </div>
+        <p className="mt-1 font-mono text-[11px] text-parchdim">
+          leader exec: {t.exec || "?"} · {t.agree + t.disagree + t.idle > 0
+            ? `${t.agree} agree · ${t.disagree} disagree · ${t.idle} idle`
+            : "no validator votes recorded"}
+          {t.rotations > 0 ? ` · ${t.rotations} rotation${t.rotations > 1 ? "s" : ""}` : ""}
+          {t.appealed ? " · appealed" : ""}
+          {t.time ? ` · ${t.time.slice(0, 16).replace("T", " ")} UTC` : ""}
+        </p>
+      </button>
+      {open && (
+        <div className="mt-2 rounded-sm border border-parchment/10 bg-ink px-3 py-2">
+          {t.proposal && (t.proposal.compliant !== null || t.proposal.score !== null || t.proposal.reason) ? (
+            <div className="text-xs">
+              <p className="font-mono text-[11px] uppercase tracking-wider text-brass">Leader proposal</p>
+              <p className="mt-1">
+                <b className={t.proposal.compliant ? "text-pine" : "text-seal"}>
+                  {t.proposal.compliant === null ? "?" : t.proposal.compliant ? "compliant" : "breach"}
+                </b>
+                {t.proposal.score !== null && <span className="font-mono"> · score {t.proposal.score}</span>}
+                {t.proposal.responsible && <span> · responsible: <span className="font-mono">{t.proposal.responsible}</span></span>}
+              </p>
+              {t.proposal.reason && <p className="mt-1 leading-relaxed text-parchdim">{t.proposal.reason}</p>}
+              {t.consensus === "undetermined" && (
+                <p className="mt-2 text-parchdim">No majority agreed — nothing was stored by this transaction. The pact keeps its previous state.</p>
+              )}
+            </div>
+          ) : (
+            <p className="font-mono text-[11px] text-sage">No AI proposal on this transaction.</p>
+          )}
+          {t.rounds.length > 1 && (
+            <div className="mt-2 border-t border-parchment/10 pt-2">
+              <p className="font-mono text-[11px] uppercase tracking-wider text-brass">Rounds</p>
+              {t.rounds.map((r, i) => (
+                <p key={i} className="mt-0.5 font-mono text-[11px] text-parchdim">
+                  round {i}: exec {r.exec || "?"} · vote {r.vote || "—"}
+                </p>
+              ))}
+            </div>
+          )}
+          <a href={`${EXPLORER_BASE}/tx/${t.hash}`} target="_blank" rel="noreferrer" className="mt-2 inline-block font-mono text-[11px] text-sage underline-offset-2 hover:text-parchment hover:underline">
+            {t.hash.slice(0, 14)}… full receipt in explorer ↗
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActionCard({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {  return (
     <section className="rounded-md border border-parchment/10 bg-ink2 p-5">
       <h3 className="font-display text-lg font-semibold">{title}</h3>
       <p className="mt-1 text-xs text-parchdim">{hint}</p>
@@ -292,28 +357,7 @@ export default function PactDetail({ params }: { params: Promise<{ id: string }>
                   {trail.map((t) => {
                     const ai = t.method === "adjudicate_workflow" || t.method === "resolve_dispute";
                     return (
-                      <div key={t.hash} className={`ledger-row px-4 py-3 ${ai ? "border-l-2 border-l-brass" : ""}`}>
-                        <div className="flex flex-wrap items-baseline gap-x-3">
-                          <span className="text-sm font-semibold">
-                            {t.method ? (METHOD_LABEL[t.method] || t.method) : t.kind === "send" ? "GEN transfer" : t.kind}
-                          </span>
-                          {ai && <span className="rounded-sm bg-brass/20 px-1.5 py-0.5 font-mono text-[10px] text-brass">AI consensus</span>}
-                          <span className={`font-mono text-[11px] ${t.exec === "SUCCESS" ? "text-pine" : t.exec ? "text-seal" : "text-sage"}`}>
-                            {t.exec || t.status}
-                          </span>
-                          <a href={`${EXPLORER_BASE}/tx/${t.hash}`} target="_blank" rel="noreferrer" className="ml-auto font-mono text-[11px] text-sage underline-offset-2 hover:text-parchment hover:underline">
-                            {t.hash.slice(0, 10)}… ↗
-                          </a>
-                        </div>
-                        <p className="mt-1 font-mono text-[11px] text-parchdim">
-                          {t.agree + t.disagree + t.idle > 0
-                            ? `${t.agree} agree · ${t.disagree} disagree · ${t.idle} idle`
-                            : "no validator votes recorded"}
-                          {t.rotations > 0 ? ` · ${t.rotations} rotation${t.rotations > 1 ? "s" : ""}` : ""}
-                          {t.appealed ? " · appealed" : ""}
-                          {t.time ? ` · ${t.time.slice(0, 16).replace("T", " ")} UTC` : ""}
-                        </p>
-                      </div>
+                      <TrailRow key={t.hash} t={t} ai={ai} />
                     );
                   })}
                 </div>
