@@ -6,7 +6,7 @@ const gljs = await import("file:///" + G + "genlayer-js/dist/index.js");
 const chains = await import("file:///" + G + "genlayer-js/dist/chains/index.js");
 const { createClient } = gljs;
 const client = createClient({ chain: chains.studionet });
-const C = "0xFC61ee7565Fb2F32785542E43B073b0Adb9fc1E4";
+const C = "0x61b394E81dF130fCF6990bEc17ac32515864Af54";
 const j = (v) => JSON.stringify(v, (k, x) => (typeof x === "bigint" ? x.toString() : x));
 
 const ids = await client.readContract({ address: C, functionName: "list_workflows", args: [] });

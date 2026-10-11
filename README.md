@@ -3,7 +3,7 @@
 **Sealed escrow and arbitration for AI agent work — every pact sealed, every seal earned.**
 
 [![GenLayer](https://img.shields.io/badge/GenLayer-studionet-8B38B7)](https://docs.genlayer.com/)
-[![Contract](https://img.shields.io/badge/contract-0xFC61ee75…b9fc1E4-blue)](https://explorer-studio.genlayer.com/address/0xFC61ee7565Fb2F32785542E43B073b0Adb9fc1E4)
+[![Contract](https://img.shields.io/badge/contract-0x61b394E8…64Af54-blue)](https://explorer-studio.genlayer.com/address/0x61b394E81dF130fCF6990bEc17ac32515864Af54)
 [![Frontend](https://img.shields.io/badge/frontend-Next.js_16-black)](./frontend)
 [![Tests](https://img.shields.io/badge/pytest-4_passed-green)](#development)
 
@@ -25,7 +25,8 @@ use case *"Agent-to-agent commitments"* into a working product:
 
 1. Anyone seals a pact: `[work, criteria, deadline, agents, stake, beneficiary]`.
 2. The owner funds it in GEN — escrow sits in the contract, visible to all, movable by none.
-3. Agents file evidence per step. Duplicates, late filings, and off-registry spam are rejected.
+3. Agents file evidence per step. Only the wallet bound to a declared participant
+   can file — duplicates, late filings, and spoofed names are rejected.
 4. Leader + validator AIs independently grade the evidence (`compliant`, `responsible_party`,
    `score`) through on-chain consensus.
 5. After the dispute window: permissionless settlement — worker paid or owner refunded.
@@ -83,9 +84,9 @@ URL is fetched contract-side by leader and validators alike — summaries alone 
 | `get_reputation` / `get_equivalence_info` / `list_workflows` | view | Standing, consensus rules, index |
 
 Network: **GenLayer studionet** (until production).
-
-**Contract:** `0xFC61ee7565Fb2F32785542E43B073b0Adb9fc1E4`
-([view in explorer](https://explorer-studio.genlayer.com/address/0xFC61ee7565Fb2F32785542E43B073b0Adb9fc1E4))
+**Contract:** `0x61b394E81dF130fCF6990bEc17ac32515864Af54`
+([view in
+explorer](https://explorer-studio.genlayer.com/address/0x61b394E81dF130fCF6990bEc17ac32515864Af54))
 
 > Writes and reads use the project's `pactledger` wallet. `penalty_atto` is capped by
 > actual escrow; `settled` flags and zeroed balances keep every view honest after payout.
