@@ -132,8 +132,9 @@ export default function NewPact() {
           </div>
         </div>
         <div>
-          <label className="text-xs text-parchdim" htmlFor="parts">Agents — comma separated names</label>
-          <input id="parts" value={f.participants} onChange={(e) => set("participants", e.target.value)} required placeholder="agent-alpha,agent-beta" className={`${input} font-mono`} />
+          <label className="text-xs text-parchdim" htmlFor="parts">Agents — name=wallet per agent, comma separated</label>
+          <input id="parts" value={f.participants} onChange={(e) => set("participants", e.target.value)} required placeholder="agent-alpha=0x…,agent-beta=0x…" className={`${input} font-mono`} />
+          <p className="mt-1 text-[11px] text-sage">Only the bound wallet can file evidence for that agent name. Use the connected wallet for demo agents.</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>

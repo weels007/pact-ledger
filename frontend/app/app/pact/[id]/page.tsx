@@ -227,11 +227,12 @@ export default function PactDetail({ params }: { params: Promise<{ id: string }>
     (isOwner || isBeneficiary) &&
     ["compliant", "breached"].includes(card?.status) &&
     !card?.settled &&
-    toNum(card?.appeal_count) < 1;
+    toNum(card?.appeal_count) < 1 &&
+    !!card?.settle_after && nowTick < toNum(card.settle_after);
   const canResolve = (isOwner || isBeneficiary) && card?.status === "disputed";
   const canSettle = isAuthed && ["compliant", "breached"].includes(card?.status) && !card?.settled;
   const settleReady = !!card?.settle_after && nowTick >= toNum(card.settle_after);
-  const canRecover = isOwner && !card?.settled && ["open", "disputed"].includes(card?.status);
+  const canRecover = isOwner && !card?.settled && card?.status === "open";
   const canExtend = isOwner && card?.status === "open" && !card?.settled;
 
   async function act(
@@ -448,7 +449,7 @@ export default function PactDetail({ params }: { params: Promise<{ id: string }>
             )}
 
             {canDispute && (
-              <ActionCard title="Open dispute" hint="One round only. Reputation effects reverse until re-grading.">
+              <ActionCard title="Open dispute" hint="One round only, before the settlement deadline. Reputation effects reverse until re-grading.">
                 <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Why is the verdict wrong?" className={`${input} mb-2`} />
                 <Button variant="danger" size="block" disabled={busy} onClick={() => act(`Disputing ${id}`, "open_dispute", [id, note.trim()], {}, "Dispute opened. Reputation effects reversed.",
                   (c) => c?.status === "disputed")}>Dispute verdict</Button>
@@ -481,7 +482,7 @@ export default function PactDetail({ params }: { params: Promise<{ id: string }>
             )}
 
             {canRecover && (
-              <ActionCard title="Recover escrow" hint="No verdict and past deadline + window: reclaim funds so they never lock.">
+              <ActionCard title="Recover escrow" hint="Only before any verdict: reclaim funds from quiet pacts so they never lock.">
                 <Button variant="danger" size="block" disabled={busy} onClick={() => act(`Recovering ${id}`, "recover_escrow", [id], {}, "Escrow reclaimed by owner.",
                   (c) => !!c?.settled)}>Recover funds</Button>
               </ActionCard>

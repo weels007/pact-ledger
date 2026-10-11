@@ -80,6 +80,45 @@ def _norm_name(value) -> str:
     return str(value).strip().lower()
 
 
+def _participant_names(participants_json: str) -> list:
+    try:
+        items = json.loads(participants_json)
+    except Exception:
+        return []
+    names = []
+    for p in items:
+        if isinstance(p, dict):
+            n = str(p.get("name", "")).strip()
+        else:
+            n = str(p).strip()
+        if n:
+            names.append(n)
+    return names
+
+
+def _parse_agent_binding(entry: str):
+    # Format "name=0xAddress". Returns (norm_name, display_name, Address).
+    if "=" not in entry:
+        raise gl.vm.UserError(f"{ERROR_EXPECTED} Participant must be name=0xAddress")
+    name, _, addr = entry.partition("=")
+    display = name.strip()
+    key = _norm_name(display)
+    addr = addr.strip()
+    if not display or key in ("none", "unknown"):
+        raise gl.vm.UserError(f"{ERROR_EXPECTED} Participant name is empty or reserved")
+    if len(addr) != 42 or not addr.startswith("0x"):
+        raise gl.vm.UserError(f"{ERROR_EXPECTED} Participant address malformed: {display}")
+    try:
+        int(addr[2:], 16)
+    except Exception:
+        raise gl.vm.UserError(f"{ERROR_EXPECTED} Participant address malformed: {display}")
+    try:
+        address = Address(addr)
+    except Exception:
+        raise gl.vm.UserError(f"{ERROR_EXPECTED} Participant address malformed: {display}")
+    return key, display, address
+
+
 MAX_FETCH_CHARS_PER_ENTRY = 1200
 MAX_FETCH_CHARS_TOTAL = 8000
 
@@ -187,6 +226,9 @@ class PactLedger(gl.Contract):
     evidence: TreeMap[str, str]
     verdicts: TreeMap[str, Verdict]
     reputation: TreeMap[str, i64]
+    # Flat agent bindings "workflow_id|agent_key" -> wallet hex. Plain str
+    # values only: Address-typed map values do not round-trip on this runner.
+    agent_bindings: TreeMap[str, str]
 
     def __init__(self):
         self.owner = gl.message.sender_address
@@ -218,13 +260,26 @@ class PactLedger(gl.Contract):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} sla_criteria too long")
         if deadline_unix <= u256(_now()):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} deadline must be in the future")
-        # Comma-separated agent names (no quotes needed -> CLI-safe).
-        # Stored canonically as a JSON list for the adjudication prompt.
-        names = [n.strip() for n in participants.split(",")]
-        names = [n for n in names if n]
-        if len(names) == 0:
+        # Comma-separated "name=0xAddress" bindings (no quotes needed).
+        # The sender wallet must match the bound address to file evidence.
+        # Stored canonically as JSON for the adjudication prompt.
+        bound = {}
+        display_names = []
+        for raw in participants.split(","):
+            raw = raw.strip()
+            if not raw:
+                continue
+            key, display, address = _parse_agent_binding(raw)
+            if key in bound:
+                raise gl.vm.UserError(f"{ERROR_EXPECTED} Duplicate participant: {display}")
+            bound[key] = address
+            display_names.append(display)
+        if len(bound) == 0:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} participants is empty")
-        participants_json = json.dumps(names)
+        names = display_names
+        participants_json = json.dumps(
+            [{"name": n, "address": bound[_norm_name(n)].as_hex} for n in names]
+        )
 
         self.workflows[wid] = Workflow(
             workflow_id=wid,
@@ -246,9 +301,9 @@ class PactLedger(gl.Contract):
             dispute_note="",
         )
         self.workflow_ids.append(wid)
-        for name in names:
-            key = _norm_name(name)
-            if key and key != "none" and key not in self.reputation:
+        for key, address in bound.items():
+            self.agent_bindings[wid + "|" + key] = address.as_hex
+            if key not in self.reputation:
                 self.reputation[key] = 100
 
     @gl.public.write.payable
@@ -301,8 +356,15 @@ class PactLedger(gl.Contract):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Workflow is not accepting evidence")
         if not step_id.strip():
             raise gl.vm.UserError(f"{ERROR_EXPECTED} step_id is empty")
-        if not agent_name.strip():
-            raise gl.vm.UserError(f"{ERROR_EXPECTED} agent_name is empty")
+        agent_key = _norm_name(agent_name)
+        if not agent_key or agent_key in ("none", "unknown"):
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} agent_name is empty or reserved")
+        binding_key = wid + "|" + agent_key
+        bound_hex = ""
+        if binding_key in self.agent_bindings:
+            bound_hex = str(self.agent_bindings[binding_key]).lower()
+        if not bound_hex or bound_hex != str(gl.message.sender_address.as_hex).lower():
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} Sender wallet is not bound to this participant")
         if not summary.strip():
             raise gl.vm.UserError(f"{ERROR_EXPECTED} summary is empty")
         if len(summary) > MAX_TEXT_LEN:
@@ -462,12 +524,8 @@ Respond ONLY in JSON:
 
     def _apply_reputation(self, participants_json: str, compliant: bool, responsible: str) -> None:
         if compliant:
-            try:
-                participants = json.loads(participants_json)
-            except Exception:
-                return
-            for p in participants:
-                name = _norm_name(p)
+            for display in _participant_names(participants_json):
+                name = _norm_name(display)
                 if name and name != "none":
                     self.reputation[name] = self.reputation.get(name, 100) + 2
         else:
@@ -483,12 +541,8 @@ Respond ONLY in JSON:
         v = self.verdicts[wid]
         wf = self.workflows[wid]
         if v.compliant:
-            try:
-                participants = json.loads(wf.participants_json)
-            except Exception:
-                return
-            for p in participants:
-                name = _norm_name(p)
+            for display in _participant_names(wf.participants_json):
+                name = _norm_name(display)
                 if name and name != "none":
                     self.reputation[name] = self.reputation.get(name, 100) - 2
         else:
@@ -568,6 +622,8 @@ Respond ONLY in JSON:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} No verdict to dispute yet")
         if bool(wf.settled):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Workflow already settled")
+        if u256(_now()) >= wf.settle_after:
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} Dispute window closed, use settle_workflow")
         if int(wf.appeal_count) >= 1:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Only one dispute round allowed")
         if len(note) > MAX_NOTE_LEN:
@@ -635,10 +691,11 @@ Respond ONLY in JSON:
     @gl.public.write
     def recover_escrow(self, workflow_id: str) -> dict:
         # Escape hatch so funds are never locked indefinitely: if the
-        # workflow never reached a final verdict (abandoned, adjudication
-        # inconclusive, or dispute stuck), the owner can reclaim the escrow
-        # after the deadline plus one dispute window. Unavailable once a
-        # final verdict exists (use settle_workflow) or after settlement.
+        # workflow never reached a verdict (abandoned or adjudication
+        # inconclusive), the owner can reclaim the escrow after the deadline
+        # plus one dispute window. Once ANY verdict exists (including a
+        # disputed one), funds follow the verdict path only — recovery is
+        # unavailable so a verdict can never be bypassed.
         wid = workflow_id.strip()
         if wid not in self.workflows:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Unknown workflow")
@@ -647,8 +704,8 @@ Respond ONLY in JSON:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Only workflow owner can recover")
         if bool(wf.settled):
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Already settled")
-        if wf.status not in ("open", "disputed"):
-            raise gl.vm.UserError(f"{ERROR_EXPECTED} Final verdict exists, use settle_workflow")
+        if wf.status != "open":
+            raise gl.vm.UserError(f"{ERROR_EXPECTED} Verdict path active, use dispute/settle flow")
         if u256(_now()) <= wf.deadline_unix + wf.dispute_window_sec:
             raise gl.vm.UserError(f"{ERROR_EXPECTED} Recovery not yet available")
         amount = int(wf.escrowed)
@@ -765,15 +822,12 @@ Respond ONLY in JSON:
         if wid not in self.workflows:
             return {}
         wf = self.workflows[wid]
-        try:
-            participants = json.loads(wf.participants_json)
-        except Exception:
-            participants = []
+        participants = _participant_names(wf.participants_json)
         reputations = {}
-        for p in participants:
-            key = _norm_name(p)
+        for display in participants:
+            key = _norm_name(display)
             if key:
-                reputations[str(p)] = int(self.reputation.get(key, 100))
+                reputations[display] = int(self.reputation.get(key, 100))
         verdict = {}
         if wid in self.verdicts:
             v = self.verdicts[wid]
