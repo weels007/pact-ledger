@@ -58,6 +58,31 @@ function methodOf(b64: string | null): string | null {
   return null;
 }
 
+/** Parse the FIRST positional arg (workflow id) structurally:
+ *  `args` + ULEB(array) + typed elements. The old ASCII-split heuristic
+ *  broke whenever the string length byte was printable (ids of length
+ *  4–15 glue onto the id, e.g. `L` + `v8demo-ok`). */
+function firstArgOf(b64: string | null): string | null {
+  if (!b64) return null;
+  let buf: Buffer;
+  try {
+    buf = Buffer.from(b64, "base64");
+  } catch {
+    return null;
+  }
+  const marker = Buffer.from("args", "utf8");
+  const mi = buf.indexOf(marker);
+  if (mi < 0) return null;
+  const [n, pos] = readUleb(buf, mi + marker.length);
+  if (n % 8 !== 5) return null; // not an array
+  if (Math.floor(n / 8) < 1) return null;
+  const [m, next] = readUleb(buf, pos);
+  if (m % 8 !== 4) return null; // first element not a string
+  const len = Math.floor(m / 8);
+  if (len <= 0 || len > 200 || next + len > buf.length) return null;
+  return buf.toString("utf8", next, next + len);
+}
+
 // --- Leader-proposal decoder (GenVM calldata map, flat keys) ---------------
 // Values start with a ULEB128 number: low 3 bits = type (0 atom, 1 uint,
 // 4 string), remaining bits = value/length. Keys are FastStrings (ULEB128
@@ -121,8 +146,8 @@ function decodeProposal(b64: string | null): SlimTx["proposal"] {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function slim(tx: any, workflowId: string): SlimTx | null {
   const cd = tx?.data?.calldata;
-  const text = asciiText(typeof cd === "string" ? cd : "");
-  if (!text.split(/[^A-Za-z0-9_-]+/).includes(workflowId)) return null;
+  const firstArg = firstArgOf(typeof cd === "string" ? cd : null);
+  if (firstArg !== workflowId) return null;
   const votes = tx?.consensus_data?.votes;
   let agree = 0,
     disagree = 0,
